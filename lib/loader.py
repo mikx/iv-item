@@ -7,12 +7,15 @@ from itertools import chain
 
 # pip install pyfunctional
 from functional import seq
-
+#
 # Item
-Item = namedtuple('Item', 'name categoryName itemLevel equipLevel jobs attributes bonus')
+#
+Item = namedtuple('Item', 'name categoryName level equipLevel jobs attributes bonus')
 
 
-# Loader    
+#
+# Loader
+#
 class Loader:
 
   jobs = {}
@@ -54,9 +57,34 @@ class Loader:
       q = """SELECT i.* FROM Item i INNER JOIN ItemUICategory c ON i.UICategory = c.Key WHERE c.Kind <= 4 AND i.Legacy = 0"""
       cur.execute(q)
       rows = cur.fetchall()
-      multilist = seq(rows).map(self.makeItems)
-      self.items = list(chain.from_iterable(multilist))
+      multilist  = seq(rows).map(self.makeItems)
+      self.items = seq(chain.from_iterable(multilist))
       
+  def makeItems(self, row):
+    data = row["data"]
+    blob = json.loads(data)
+
+    item = Item(
+      name            = row["UIName_en"],
+      categoryName    = self.uiCategory[row["UICategory"]],
+      equipLevel      = row["EquipLevel"],
+      level           = row["Level"],
+      jobs            = self.makeJobs(row),
+      attributes      = self.makeAttributes(self.allAttributes, row),
+      bonus           = self.makeParams(blob["bonus"]) if "bonus" in blob else {})
+
+    result = []
+    result.append(item)
+    
+    if row['HQ'] == 1:
+      name_hq = item.name + ' HQ'
+      attributes_hq = self.makeAttributes(self.allAttributesHq, row)
+      bonus_hq = self.makeParams(blob["bonus_hq"]) if "bonus_hq" in blob else {}
+      item_hq = item._replace(name = name_hq, attributes = attributes_hq, bonus = bonus_hq)
+      result.append(item_hq)
+      
+    return result
+
   def makeJobs(self, row):
     return seq(row["classjob"].split(",")).filter(None).map(int).filter(None).map(lambda x: self.jobs[x]).to_set()
 
@@ -66,20 +94,65 @@ class Loader:
   def makeParams(self, bonus):
     return dict([(self.baseParams[int(k)],v) for kv in bonus for k,v in kv.items()])
 
-      
-  def makeItems(self, row):
-    data = row["data"]
-    blob = json.loads(data)
-    item = Item(
-      name            = row["UIName_en"],
-      categoryName    = self.uiCategory[row["UICategory"]],
-      equipLevel      = row["EquipLevel"],
-      itemLevel       = row["Level"],
-      jobs            = self.makeJobs(row),
-      attributes      = self.makeAttributes(self.allAttributes, row),
-      bonus           = self.makeParams(blob["bonus"]) if "bonus" in blob else {})
-    result = []
-    result.append(item)
-    return [result]
 
+#
+# ItemFilter
+#
+class ItemFilter(object):
 
+  def byCatrgoryName(names, item):
+    return item if item.categoryName in names else None
+    
+  def byBonusName(names, item):
+    return item if any(map(item.bonus.__contains__, names)) else None
+    
+  def byJobName(names, item):
+    return item if any(map(item.jobs.__contains__, names)) else None
+    
+  def byLevel(min, max, item):
+    return item if min <= item.equipLevel and item.equipLevel <= max else None
+
+  
+#
+# ItemFormatter
+# 
+class ItemFormatter(object):
+
+  def getBase():
+    return ['Name', 'level', 'iLevel']
+
+  def getEffectiveAttributes(items):
+    result = set()
+    for i in items:
+      result = result.union(i.attributes.keys())
+    return result
+
+  def getEffectiveBonus(items):
+    result = set()
+    for i in items:
+      result = result.union(i.bonus.keys())
+    return result
+    
+  def toCsvString(arr):
+    return '"' + '","'.join(map(str, arr)) + '"'
+    
+  def toCsvArray(items):
+    base = ItemFormatter.getBase()
+    attributes = sorted(ItemFormatter.getEffectiveAttributes(items))
+    bonus = sorted(ItemFormatter.getEffectiveBonus(items))
+    attr_bonus = { v:k for k,v in enumerate(attributes + bonus) }
+    attr_bonus_len = len(attr_bonus)
+    result = [ItemFormatter.toCsvString(base + attributes + bonus)]
+    for item in items:
+      line = [""] * attr_bonus_len
+      for k,v in item.attributes.items():
+        line[attr_bonus[k]] = v
+      for k,v in item.bonus.items():
+        line[attr_bonus[k]] = v
+      result.append(ItemFormatter.toCsvString([item.name, item.equipLevel, item.level] + line))
+    return result
+  
+  
+  
+
+  
