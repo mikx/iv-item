@@ -2,21 +2,26 @@ import sqlite3 as lite
 import sys
 import json
 
+from collections import namedtuple
+from itertools import chain
+
+# pip install pyfunctional
+from functional import seq
 
 # Item
-class Item:
-  def __init__(self):
-    self.name = '?'
+Item = namedtuple('Item', 'name categoryName itemLevel equipLevel jobs attributes bonus')
+
 
 # Loader    
 class Loader:
 
   jobs = {}
-  base_params = {}
+  baseParams = {}
   uiCategory = {}
   items = []
   
-  attributes = []
+  allAttributes = ['Damage', 'MagicDamage', 'Defense', 'MagicDefense', 'ShieldRate', 'ShieldBlockRate', 'AttackInterval', 'AutoAttack']
+  allAttributesHq = seq(allAttributes).map(lambda a: a + '_hq').to_list()
 
   def loadData(self):
     con = lite.connect('lib/app_data.sqlite')
@@ -36,7 +41,7 @@ class Loader:
       cur.execute(q)
       rows = cur.fetchall()
       for row in rows:
-          self.base_params[row["Key"]] = row["Name_en"]
+          self.baseParams[row["Key"]] = row["Name_en"]
       
       # Category
       q = """SELECT Key, Name_en FROM ItemUICategory"""
@@ -46,20 +51,35 @@ class Loader:
           self.uiCategory[row["Key"]] = row["Name_en"]
 
       # Items      
-      q = """SELECT * FROM Item"""
+      q = """SELECT i.* FROM Item i INNER JOIN ItemUICategory c ON i.UICategory = c.Key WHERE c.Kind <= 4 AND i.Legacy = 0"""
       cur.execute(q)
       rows = cur.fetchall()
-      self.items = list(map(Loader.makeItem, rows))
-  
-  def makeItem(row):
-    item = Item()
+      multilist = seq(rows).map(self.makeItems)
+      self.items = list(chain.from_iterable(multilist))
+      
+  def makeJobs(self, row):
+    return seq(row["classjob"].split(",")).filter(None).map(int).filter(None).map(lambda x: self.jobs[x]).to_set()
+
+  def makeAttributes(self, attributes, row):
+    return dict([(a,row[a]) for a in attributes if row[a] != 0])
     
-    item.name       = row["UIName_en"]
-    item.level      = row["EquipLevel"]
-    item.iLevel     = row["Level"]
-    
-    classjob = row["classjob"].split(",")
-    
-    return item
+  def makeParams(self, bonus):
+    return dict([(self.baseParams[int(k)],v) for kv in bonus for k,v in kv.items()])
+
+      
+  def makeItems(self, row):
+    data = row["data"]
+    blob = json.loads(data)
+    item = Item(
+      name            = row["UIName_en"],
+      categoryName    = self.uiCategory[row["UICategory"]],
+      equipLevel      = row["EquipLevel"],
+      itemLevel       = row["Level"],
+      jobs            = self.makeJobs(row),
+      attributes      = self.makeAttributes(self.allAttributes, row),
+      bonus           = self.makeParams(blob["bonus"]) if "bonus" in blob else {})
+    result = []
+    result.append(item)
+    return [result]
 
 
