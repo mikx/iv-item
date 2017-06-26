@@ -118,9 +118,6 @@ class ItemFilter(object):
 # 
 class ItemFormatter(object):
 
-  def getBase():
-    return ['Name', 'level', 'iLevel']
-
   def getEffectiveAttributes(items):
     result = set()
     for i in items:
@@ -137,7 +134,7 @@ class ItemFormatter(object):
     return '"' + '","'.join(map(str, arr)) + '"'
     
   def toCsvArray(items):
-    base = ItemFormatter.getBase()
+    base = ['Name', 'level', 'iLevel']
     attributes = sorted(ItemFormatter.getEffectiveAttributes(items))
     bonus = sorted(ItemFormatter.getEffectiveBonus(items))
     attr_bonus = { v:k for k,v in enumerate(attributes + bonus) }
